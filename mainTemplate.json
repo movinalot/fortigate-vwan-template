@@ -1,0 +1,126 @@
+{
+    "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+    "contentVersion": "1.0.0.0",
+    "parameters": {
+        "adminUsername": {
+            "type": "string",
+            "metadata": {
+                "description": "Admin username of os profile"
+            }
+        },
+        "adminPassword": {
+            "type": "securestring",
+            "metadata": {
+                "description": "Admin password of os profile"
+            }
+        },
+        "fortiGateNamePrefix": {
+            "type": "string",
+            "defaultValue": "FortiGate",
+            "metadata": {
+                "description": "Will be used as prefix for NVA name"
+            }
+        },
+        "fortiGateImageVersion": {
+            "type": "string",
+            "defaultValue": "7.4.0",
+            "metadata": {
+                "description": "Recommend - Latest"
+            }
+        },
+        "hubId": {
+            "type": "string",
+            "metadata": {
+                "description": "The Virtual Wan Hub ID"
+            }
+        },
+        "fortiGateASN": {
+            "type": "string",
+            "defaultValue": "64512",
+            "metadata": {
+                "description": "BGP ASN to be used on FortiGates"
+            }
+        },
+        "tags": {
+            "type": "object",
+            "defaultValue": {}
+        },
+        "scaleUnit": {
+            "type": "string",
+            "defaultValue": "2",
+            "allowedValues": [
+                "2",
+                "4",
+                "10",
+                "20"
+            ],
+            "metadata": {
+                "description": "The scale unit size to deploy"
+            }
+        },
+        "hubRouters": {
+            "type": "array",
+            "metadata": {
+                "description": "Virtual WAN Hub Router IPs"
+            }
+        },
+        "hubASN": {
+            "type": "string",
+            "defaultValue": "",
+            "metadata": {
+                "description": "Virtual WAN Hub Router IPs"
+            }
+        },
+        "location": {
+            "type": "string",
+            "defaultValue": ""
+        },
+        "fortiManagerIP": {
+            "type": "string",
+            "defaultValue": "",
+            "metadata": {
+                "description": "FortiManager IP or DNS name to connect to on port TCP/541"
+            }
+        },
+        "fortiManagerSerial": {
+            "type": "string",
+            "defaultValue": "",
+            "metadata": {
+                "description": "FortiManager serial number to add the deployed FortiGate into the FortiManager"
+            }
+        }
+    },
+    "variables": {
+        "hubRouter1": "[string(parameters('hubRouters')[0])]",
+        "hubRouter2": "[string(parameters('hubRouters')[1])]",
+        "hubRouterASN": "[parameters('HubASN')]",
+        "customData-BGPConfig": "[concat('config router bgp\n set as ', parameters('fortiGateASN'), '\n set ebgp-multipath enable\n set graceful-restart enable\n config neighbor\n edit ',variables('hubRouter1'), '\n set ebgp-enforce-multihop enable\n set interface port2\n set remote-as ',variables('hubRouterASN'),'\n next\n edit ',variables('hubRouter2'), '\n set ebgp-enforce-multihop enable\n set interface port2\n set remote-as ',variables('hubRouterASN'),'\n next\n \n end\n end\n')]",
+        "customData-InterfaceConf": "config system interface\n edit port1\n next\n edit port2\n set mode dhcp\n set defaultgw disable\n set allowaccess ping https ssh ftm probe-response\n next\n end\n",
+        "customData-ProbeResponse": "config system probe-response\n set http-probe-value OK\n set mode http-probe\n end\n",
+        "customData-FortiManager": "[concat('config system central-management\nset type fortimanager\n set fmg ',parameters('fortiManagerIP'),'\nset serial-number ', parameters('fortiManagerSerial'), '\nend\n')]",
+        "uniqueId": "[uniqueString(subscription().subscriptionId, deployment().name, 'FortiGate-ngfw')]",
+        "nvaName": "[concat(parameters('fortiGateNamePrefix'),'-sdfw-',variables('uniqueId'))]"
+    },
+    "resources": [
+        {
+            "type": "Microsoft.Network/networkVirtualAppliances",
+            "name": "[variables('nvaName')]",
+            "apiVersion": "2022-01-01",
+            "location": "[parameters('location')]",
+            "tags": "[parameters('tags')]",
+            "properties": {
+                "nvaSku": {
+                  "vendor": "fortinet-sdwan-and-ngfw",
+                  "bundledScaleUnit": "[parameters('scaleUnit')]",
+                  "marketPlaceVersion": "[parameters('fortiGateImageVersion')]"
+                },
+                "virtualHub": {
+                  "id": "[parameters('hubId')]"
+                },
+                "virtualApplianceAsn": "[parameters('fortiGateASN')]",
+                "cloudInitConfiguration": "[concat('config system admin\n edit ', parameters('adminUsername'), '\n set accprofile super_admin\n set vdom root\n set password ', parameters('adminPassword'), '\n next\n end\n',variables('customData-InterfaceConf'), variables('customData-ProbeResponse'), variables('customData-BGPConfig'),variables('customData-FortiManager'))]"
+            }
+        }
+    ],
+    "outputs": {}
+}
